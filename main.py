@@ -56,77 +56,78 @@ def train():
     #     print(im.shape)
     # exit()
 
-    ###========================== DEFINE MODEL ============================###
-    ## train inference
-    t_image = tf.placeholder('float32', [batch_size, 256, 256, 3], name='t_image_input_to_SRGAN_generator')
-    t_target_image = tf.placeholder('float32', [batch_size, 512, 512, 3], name='t_target_image')
+    with tf.device('/device:GPU:0'):
+        ###========================== DEFINE MODEL ============================###
+        ## train inference
+        t_image = tf.placeholder('float32', [batch_size, 256, 256, 3], name='t_image_input_to_SRGAN_generator')
+        t_target_image = tf.placeholder('float32', [batch_size, 512, 512, 3], name='t_target_image')
 
-    net_g = SRGAN_g(t_image, is_train=True, reuse=False)
-    net_d, logits_real = SRGAN_d(t_target_image, is_train=True, reuse=False)
-    _, logits_fake = SRGAN_d(net_g.outputs, is_train=True, reuse=True)
+        net_g = SRGAN_g(t_image, is_train=True, reuse=False)
+        net_d, logits_real = SRGAN_d(t_target_image, is_train=True, reuse=False)
+        _, logits_fake = SRGAN_d(net_g.outputs, is_train=True, reuse=True)
 
-    net_g.print_params(False)
-    net_g.print_layers()
-    net_d.print_params(False)
-    net_d.print_layers()
+        net_g.print_params(False)
+        net_g.print_layers()
+        net_d.print_params(False)
+        net_d.print_layers()
 
-    ## vgg inference. 0, 1, 2, 3 BILINEAR NEAREST BICUBIC AREA
-    t_target_image_224 = tf.image.resize_images(
-        t_target_image, size=[224, 224], method=0,
-        align_corners=False)  # resize_target_image_for_vgg # http://tensorlayer.readthedocs.io/en/latest/_modules/tensorlayer/layers.html#UpSampling2dLayer
-    t_predict_image_224 = tf.image.resize_images(net_g.outputs, size=[224, 224], method=0, align_corners=False)  # resize_generate_image_for_vgg
+        ## vgg inference. 0, 1, 2, 3 BILINEAR NEAREST BICUBIC AREA
+        t_target_image_224 = tf.image.resize_images(
+            t_target_image, size=[224, 224], method=0,
+            align_corners=False)  # resize_target_image_for_vgg # http://tensorlayer.readthedocs.io/en/latest/_modules/tensorlayer/layers.html#UpSampling2dLayer
+        t_predict_image_224 = tf.image.resize_images(net_g.outputs, size=[224, 224], method=0, align_corners=False)  # resize_generate_image_for_vgg
 
-    net_vgg, vgg_target_emb = Vgg19_simple_api((t_target_image_224 + 1) / 2, reuse=False)
-    _, vgg_predict_emb = Vgg19_simple_api((t_predict_image_224 + 1) / 2, reuse=True)
+        net_vgg, vgg_target_emb = Vgg19_simple_api((t_target_image_224 + 1) / 2, reuse=False)
+        _, vgg_predict_emb = Vgg19_simple_api((t_predict_image_224 + 1) / 2, reuse=True)
 
-    ## test inference
-    net_g_test = SRGAN_g(t_image, is_train=False, reuse=True)
+        ## test inference
+        net_g_test = SRGAN_g(t_image, is_train=False, reuse=True)
 
-    # ###========================== DEFINE TRAIN OPS ==========================###
-    d_loss1 = tl.cost.sigmoid_cross_entropy(logits_real, tf.ones_like(logits_real), name='d1')
-    d_loss2 = tl.cost.sigmoid_cross_entropy(logits_fake, tf.zeros_like(logits_fake), name='d2')
-    d_loss = d_loss1 + d_loss2
+        # ###========================== DEFINE TRAIN OPS ==========================###
+        d_loss1 = tl.cost.sigmoid_cross_entropy(logits_real, tf.ones_like(logits_real), name='d1')
+        d_loss2 = tl.cost.sigmoid_cross_entropy(logits_fake, tf.zeros_like(logits_fake), name='d2')
+        d_loss = d_loss1 + d_loss2
 
-    g_gan_loss = 1e-3 * tl.cost.sigmoid_cross_entropy(logits_fake, tf.ones_like(logits_fake), name='g')
-    mse_loss = tl.cost.mean_squared_error(net_g.outputs, t_target_image, is_mean=True)
-    vgg_loss = 2e-6 * tl.cost.mean_squared_error(vgg_predict_emb.outputs, vgg_target_emb.outputs, is_mean=True)
+        g_gan_loss = 1e-3 * tl.cost.sigmoid_cross_entropy(logits_fake, tf.ones_like(logits_fake), name='g')
+        mse_loss = tl.cost.mean_squared_error(net_g.outputs, t_target_image, is_mean=True)
+        vgg_loss = 2e-6 * tl.cost.mean_squared_error(vgg_predict_emb.outputs, vgg_target_emb.outputs, is_mean=True)
 
-    g_loss = mse_loss + vgg_loss + g_gan_loss
+        g_loss = mse_loss + vgg_loss + g_gan_loss
 
-    g_vars = tl.layers.get_variables_with_name('SRGAN_g', True, True)
-    d_vars = tl.layers.get_variables_with_name('SRGAN_d', True, True)
+        g_vars = tl.layers.get_variables_with_name('SRGAN_g', True, True)
+        d_vars = tl.layers.get_variables_with_name('SRGAN_d', True, True)
 
-    with tf.variable_scope('learning_rate'):
-        lr_v = tf.Variable(lr_init, trainable=False)
-    ## Pretrain
-    g_optim_init = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(mse_loss, var_list=g_vars)
-    ## SRGAN
-    g_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(g_loss, var_list=g_vars)
-    d_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(d_loss, var_list=d_vars)
+        with tf.variable_scope('learning_rate'):
+            lr_v = tf.Variable(lr_init, trainable=False)
+        ## Pretrain
+        g_optim_init = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(mse_loss, var_list=g_vars)
+        ## SRGAN
+        g_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(g_loss, var_list=g_vars)
+        d_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(d_loss, var_list=d_vars)
 
-    ###========================== RESTORE MODEL =============================###
-    sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False))
-    tl.layers.initialize_global_variables(sess)
-    if tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/g_{}.npz'.format(tl.global_flag['mode']), network=net_g) is False:
-        tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/g_{}_init.npz'.format(tl.global_flag['mode']), network=net_g)
-    tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/d_{}.npz'.format(tl.global_flag['mode']), network=net_d)
+        ###========================== RESTORE MODEL =============================###
+        sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False))
+        tl.layers.initialize_global_variables(sess)
+        if tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/g_{}.npz'.format(tl.global_flag['mode']), network=net_g) is False:
+            tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/g_{}_init.npz'.format(tl.global_flag['mode']), network=net_g)
+        tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/d_{}.npz'.format(tl.global_flag['mode']), network=net_d)
 
-    ###============================= LOAD VGG ===============================###
-    vgg19_npy_path = "vgg19.npy"
-    if not os.path.isfile(vgg19_npy_path):
-        print("Please download vgg19.npz from : https://github.com/machrisaa/tensorflow-vgg")
-        exit()
-    npz = np.load(vgg19_npy_path, encoding='latin1').item()
+        ###============================= LOAD VGG ===============================###
+        vgg19_npy_path = "vgg19.npy"
+        if not os.path.isfile(vgg19_npy_path):
+            print("Please download vgg19.npz from : https://github.com/machrisaa/tensorflow-vgg")
+            exit()
+        npz = np.load(vgg19_npy_path, encoding='latin1').item()
 
-    params = []
-    for val in sorted(npz.items()):
-        W = np.asarray(val[1][0])
-        b = np.asarray(val[1][1])
-        print("  Loading %s: %s, %s" % (val[0], W.shape, b.shape))
-        params.extend([W, b])
-    tl.files.assign_params(sess, params, net_vgg)
-    # net_vgg.print_params(False)
-    # net_vgg.print_layers()
+        params = []
+        for val in sorted(npz.items()):
+            W = np.asarray(val[1][0])
+            b = np.asarray(val[1][1])
+            print("  Loading %s: %s, %s" % (val[0], W.shape, b.shape))
+            params.extend([W, b])
+        tl.files.assign_params(sess, params, net_vgg)
+        # net_vgg.print_params(False)
+        # net_vgg.print_layers()
 
     ###============================= TRAINING ===============================###
     ## use first `batch_size` of train set to have a quick test during training
